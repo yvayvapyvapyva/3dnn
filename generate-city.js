@@ -89,6 +89,17 @@ const BUILDING_WARN_LIMIT = 5000;
 const DEFAULT_BUILDING_HEIGHT = 10; // метров
 
 // ---------------------------------------------------------------------------
+// Высоты слоёв над землёй (метры). Разнесены с запасом, чтобы не было
+// z-fighting при виде сверху с 1-2 км: при near=1/far=20000 буфер глубины
+// не различает зазоры 3-8 см на такой дистанции.
+// ---------------------------------------------------------------------------
+const Y_GROUND = 0;
+const Y_PARK = 0.3;
+const Y_WATER = 0.5;
+const Y_ASPHALT = 1.0;
+const BUILDING_SINK = 0.5; // здания топим ниже земли, чтобы подошва не совпадала с ground
+
+// ---------------------------------------------------------------------------
 // Парсинг аргументов командной строки вида --nw-lat=56.34
 // ---------------------------------------------------------------------------
 function parseArgs() {
@@ -351,15 +362,13 @@ function ribbonQuads(pts, offset, halfW, y, dash = 0, gap = 0) {
 }
 
 // ---------------------------------------------------------------------------
-// Дороги: асфальт плоскими лентами на уровне земли (y=0.08).
+// Дороги: асфальт плоскими лентами над землёй (см. Y_ASPHALT).
 // Ширина — из тега lanes (полоса = 3.5 м), иначе width, иначе по типу highway.
 // Разметка отключена по просьбе пользователя (не совпадает с реальной).
 // ---------------------------------------------------------------------------
 function buildRoads(osmData, scene, projector) {
   const ways = osmData.elements.filter((el) => el.type === 'way' && el.tags?.highway && el.geometry);
   console.log(`🛣️ Дорог найдено: ${ways.length}`);
-
-  const Y_ASPHALT = 0.08; // чуть выше земли, чтобы не было z-fighting
 
   const asp = { positions: [], indices: [], count: 0 };
   const append = (acc, part) => {
@@ -396,9 +405,13 @@ function buildRoads(osmData, scene, projector) {
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({ color: 0x3a3f44, roughness: 0.95, metalness: 0 })
+    new THREE.MeshStandardMaterial({
+      color: 0x3a3f44, roughness: 0.95, metalness: 0,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    })
   );
   mesh.name = 'roads';
+  mesh.renderOrder = 3;
   scene.add(mesh);
   console.log(`🛣️ Асфальт: вершин ${asp.count}, дорог с тегом lanes: ${withLanes}`);
   return ways.length;
@@ -452,6 +465,7 @@ function buildBuildings(osmData, scene, projector) {
     try {
       const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
       geo.rotateX(-Math.PI / 2); // ось экструзии Z -> вверх +Y, север окажется на -Z
+      geo.translate(0, -BUILDING_SINK, 0); // подошва ниже земли — нет копланарности с ground
       const mesh = new THREE.Mesh(geo, mat);
       mesh.name = `building_${way.id}`;
       group.add(mesh);
@@ -496,13 +510,16 @@ function flatPolygonMesh(way, projector, material, yOffset, namePrefix) {
 function buildWater(osmData, scene, projector) {
   const ways = osmData.elements.filter((el) => el.type === 'way' && el.tags?.natural === 'water' && el.geometry);
   console.log(`💧 Объектов воды найдено: ${ways.length}`);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x2f7fd1, roughness: 0.4, metalness: 0.1 });
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x2f7fd1, roughness: 0.4, metalness: 0.1,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  });
   const group = new THREE.Group();
   group.name = 'water';
   let n = 0;
   for (const way of ways) {
-    const mesh = flatPolygonMesh(way, projector, mat, 0.04, 'water');
-    if (mesh) { group.add(mesh); n++; }
+    const mesh = flatPolygonMesh(way, projector, mat, Y_WATER, 'water');
+    if (mesh) { mesh.renderOrder = 2; group.add(mesh); n++; }
   }
   scene.add(group);
   console.log(`💧 Построено полигонов воды: ${n}`);
@@ -520,13 +537,16 @@ function buildParks(osmData, scene, projector) {
       (el.tags?.leisure === 'park' || el.tags?.landuse === 'grass')
   );
   console.log(`🌳 Парков/газонов найдено: ${ways.length}`);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4da64d, roughness: 1, metalness: 0 });
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x4da64d, roughness: 1, metalness: 0,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+  });
   const group = new THREE.Group();
   group.name = 'parks';
   let n = 0;
   for (const way of ways) {
-    const mesh = flatPolygonMesh(way, projector, mat, 0.03, 'park');
-    if (mesh) { group.add(mesh); n++; }
+    const mesh = flatPolygonMesh(way, projector, mat, Y_PARK, 'park');
+    if (mesh) { mesh.renderOrder = 1; group.add(mesh); n++; }
   }
   scene.add(group);
   console.log(`🌳 Построено полигонов парков: ${n}`);
@@ -651,8 +671,9 @@ async function main() {
       new THREE.MeshStandardMaterial({ color: 0x8a8f7a, roughness: 1 })
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
+    ground.position.y = Y_GROUND;
     ground.name = 'ground';
+    ground.renderOrder = 0;
     scene.add(ground);
     console.log(`🟫 Подложка: ${sizeX.toFixed(1)} м × ${sizeZ.toFixed(1)} м`);
 

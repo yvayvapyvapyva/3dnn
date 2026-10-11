@@ -31,14 +31,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const canvas = document.getElementById('app');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x101418);
 
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 20000);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 5, 12000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
