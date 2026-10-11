@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3D-карта — просмотр city.glb</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101418; }
+  #app { width: 100%; height: 100%; display: block; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    background: rgba(0,0,0,.6); color: #eee; font: 13px/1.5 system-ui, sans-serif;
+    padding: 8px 12px; border-radius: 8px; pointer-events: none;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="hud">ЛКМ — вращать · колесо — зум · ПКМ — панорама · <b>стрелки/WASD — лететь</b> · Shift — быстрее</div>
+<canvas id="app"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const canvas = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101418);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 20000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// Свет (в GLB свет тоже есть, но добавим свой для надёжности)
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+sun.position.set(100, 200, 50);
+scene.add(sun);
+
+// Загрузка модели (путь относительно viewer.html)
+const loader = new GLTFLoader();
+const gltf = await loader.loadAsync('./output/city.glb');
+scene.add(gltf.scene);
+
+// Центрируем камеру по габаритам модели
+const box = new THREE.Box3().setFromObject(gltf.scene);
+const center = box.getCenter(new THREE.Vector3());
+const size = box.getSize(new THREE.Vector3());
+const radius = Math.max(size.x, size.z);
+camera.position.set(center.x + radius * 0.7, radius * 0.7, center.z + radius * 0.7);
+controls.target.copy(center);
+controls.update();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// --- Перемещение стрелками / WASD: летим в плоскости земли ---
+// Направление — относительно взгляда камеры (вперёд/вправо по земле).
+// Скорость масштабируется от высоты: чем выше камера, тем быстрее полёт.
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  keys.add(e.key.toLowerCase());
+});
+addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+const moveDir = new THREE.Vector3();
+const camDir = new THREE.Vector3();
+const camRight = new THREE.Vector3();
+const UP = new THREE.Vector3(0, 1, 0);
+let lastTime = performance.now();
+
+function updateFlight(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1); // сек, с clamp
+  lastTime = now;
+
+  moveDir.set(0, 0, 0);
+  camera.getWorldDirection(camDir);
+  camDir.y = 0; // только по земле
+  if (camDir.lengthSq() < 1e-6) camDir.set(0, 0, -1); // камера смотрит строго вниз
+  camDir.normalize();
+  camRight.crossVectors(camDir, UP).negate(); // вправо от взгляда
+
+  if (keys.has('arrowup') || keys.has('w') || keys.has('ц')) moveDir.add(camDir);
+  if (keys.has('arrowdown') || keys.has('s') || keys.has('ы')) moveDir.sub(camDir);
+  if (keys.has('arrowleft') || keys.has('a') || keys.has('ф')) moveDir.add(camRight);
+  if (keys.has('arrowright') || keys.has('d') || keys.has('в')) moveDir.sub(camRight);
+
+  if (moveDir.lengthSq() > 0) {
+    moveDir.normalize();
+    const height = camera.position.y;
+    // ~четверть высоты в секунду: на земле медленно, высоко — быстро
+    let speed = Math.max(height * 0.5, 10);
+    if (keys.has('shift')) speed *= 3;
+    moveDir.multiplyScalar(speed * dt);
+    camera.position.add(moveDir);
+    controls.target.add(moveDir);
+  }
+}
+
+renderer.setAnimationLoop((now) => {
+  updateFlight(now);
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

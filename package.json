@@ -1,0 +1,19 @@
+{
+  "name": "3dnn-city-generator",
+  "version": "1.0.0",
+  "description": "Генерация 3D-модели города (GLB) из данных OpenStreetMap для веба / Godot / Three.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "generate": "node generate-city.js",
+    "generate:compress": "node generate-city.js --compress"
+  },
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "optionalDependencies": {
+    "gltf-pipeline": "^4.2.3"
+  }
+}
